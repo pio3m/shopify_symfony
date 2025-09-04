@@ -194,6 +194,7 @@ final class AuthController extends AbstractController
            - znajdź Shop po shopDomain, albo utwórz nowy
            - setAccessToken($accessToken) i flush()
         */
+           
 
         /* TODO: Krok 7 — (opcjonalnie) pokaż stronę sukcesu
            - render('auth/success.html.twig', ['shop' => $shop, 'scopes' => $data['scope'] ?? '' ])
