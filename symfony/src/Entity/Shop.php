@@ -22,7 +22,7 @@ class Shop
 	#[ORM\Column(type: 'datetime_immutable')]
 	private \DateTimeImmutable $createdAt;
 
-	public function __construct(string $shopDomain, string $accessToken = null)
+	public function __construct(string $shopDomain = null, string $accessToken = null)
 	{
 		$this->shopDomain = $shopDomain;
         $this->accessToken = $accessToken;

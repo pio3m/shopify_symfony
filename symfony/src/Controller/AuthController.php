@@ -6,7 +6,7 @@ use App\Entity\Shop;
 use App\Repository\ShopRepository;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-// use Symfony\Component\HttpClient\HttpClient; //
+use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -16,160 +16,128 @@ use Symfony\Component\HttpFoundation\Session\SessionInterface;
 final class AuthController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em
+        private EntityManagerInterface $em,
+        private ShopRepository $shops
     ) {}
 
-   // To jest endpoint /auth/install
-    #[Route('/', name: 'shopify_auth_install', methods: ['GET'])]
+    #[Route('/auth/install', name: 'shopify_auth_install', methods: ['GET'])]
     public function install(Request $request, SessionInterface $session): Response
     {
-        /* TODO: Krok 1 — pobierz i zweryfikuj ?shop
-           - weź $shop z query (?shop=*.myshopify.com)
-           - zwróć 400, jeśli brak/niewłaściwy format
-        */
-         $shop = $request->query->get('shop');
-         if (!$shop || !str_ends_with($shop, '.myshopify.com')) {
-             return new Response('Invalid or missing shop parameter', 400);
-         }
 
-        /* TODO: Krok 2 — wczytaj z ENV: SHOPIFY_API_KEY, SHOPIFY_REDIRECT_URI, SHOPIFY_SCOPES
-           - jeśli brakuje któregoś → 500 z komunikatem
-        */
-         $apiKey = $_ENV['SHOPIFY_API_KEY'] ?? null;
-         $redirectUri = $_ENV['SHOPIFY_REDIRECT_URI'] ?? null;
-         $scopes = $_ENV['SHOPIFY_SCOPES'] ?? null;
+        $shop = strtolower(trim((string)$request->query->get('shop', '')));
+        if (!$shop || !str_ends_with($shop, '.myshopify.com')) {
+            return new Response('Missing or invalid ?shop=*.myshopify.com', 400);
+        }
 
-         if (!$apiKey || !$redirectUri || !$scopes) {
-             return new Response('Missing Shopify configuration in environment variables', 500);
-         }
-         
+        $apiKey = $_ENV['SHOPIFY_API_KEY'] ?? '';
+        $redirectUri = rtrim($_ENV['SHOPIFY_REDIRECT_URI'] ?? '', '/'); // np. https://abcd1234.ngrok.io/auth/callback
+        $scopes = $_ENV['SHOPIFY_SCOPES'] ?? 'read_products';  // CSV
+        if (!$apiKey || !$redirectUri) {
+            return new Response('Missing SHOPIFY_API_KEY / SHOPIFY_REDIRECT_URI', 500);
+        }
 
-        /* TODO: Krok 3 — wygeneruj losowy $state (csrf)
-           - zapisz w sesji: shopify_oauth_state, shopify_oauth_shop
-           - (opcjonalnie) zapisz też w cookie (SameSite=None; Secure) jako fallback
-        */
-         $state = bin2hex(random_bytes(16));
+        // CSRF: losowy state do sesji
+        $state = bin2hex(random_bytes(16));
+        $session->set('shopify_oauth_state', $state);
+        $session->set('shopify_oauth_shop', $shop);
 
-         $session->set('shopify_oauth_state', $state);
-         $session->set('shopify_oauth_shop', $shop);
+        $authUrl = sprintf(
+            'https://%s/admin/oauth/authorize?client_id=%s&scope=%s&redirect_uri=%s&state=%s',
+            $shop,
+            urlencode($apiKey),
+            urlencode($scopes),
+            urlencode($redirectUri),
+            urlencode($state)
+        );
 
-
-        /* TODO: Krok 4 — zbuduj $authUrl:
-           https://{shop}/admin/oauth/authorize
-             ?client_id={API_KEY}
-             &scope={CSV_SCOPES}
-             &redirect_uri={REDIRECT_URI}
-             &state={STATE}
-        */
-         $authUrl = 'https://' . $shop . '/admin/oauth/authorize' .
-                    '?client_id=' . urlencode($apiKey) .
-                    '&scope=' . urlencode($scopes) .
-                    '&redirect_uri=' . urlencode($redirectUri) .
-                    '&state=' . urlencode($state);
-                    
-        /* TODO: Krok 5 — RedirectResponse($authUrl) */
-         return new RedirectResponse(authUrl);
+        return new RedirectResponse($authUrl);
     }
-
-   
-
     #[Route('/auth/callback', name: 'shopify_auth_callback', methods: ['GET'])]
     public function callback(Request $request, SessionInterface $session): Response
     {
-        /* TODO: Krok 1 — wczytaj z ENV: SHOPIFY_API_KEY, SHOPIFY_API_SECRET
-           - jeśli brakuje → 500
-        */
-         $apiKey = $_ENV['SHOPIFY_API_KEY'] ?? null;
-         $apiSecret = $_ENV['SHOPIFY_API_SECRET'] ?? null;
-         if (!$apiKey || !$apiSecret) {
-             return new Response('Missing Shopify configuration in environment variables', 500);
-         }
+        $apiKey    = $_ENV['SHOPIFY_API_KEY']    ?? '';
+        $apiSecret = $_ENV['SHOPIFY_API_SECRET'] ?? '';
+        if (!$apiKey || !$apiSecret) {
+            return new Response('Missing SHOPIFY_API_KEY / SHOPIFY_API_SECRET', 500);
+        }
 
-        /* TODO: Krok 2 — pobierz z query: hmac, code, shop, state
-           - waliduj obecność i format shop (*.myshopify.com)
-        */
-         $hmac = $request->query->get('hmac');
-         $code = $request->query->get('code');
-         $shop = $request->query->get('shop');
-         $state = $request->query->get('state');
+        // --- 1) Odbierz parametry od Shopify
+        $hmac = (string) $request->query->get('hmac', '');
+        $code = (string) $request->query->get('code', '');
+        $shop = strtolower(trim((string) $request->query->get('shop', '')));
+        $state= (string) $request->query->get('state', '');
 
-         if (!$hmac || !$code || !$shop || !$state || !str_ends_with($shop, '.myshopify.com')) {
-             return new Response('Invalid or missing parameters from Shopify', 400);
-         }
+        if (!$hmac || !$code || !$shop) {
+            return new Response('Missing hmac/code/shop', 400);
+        }
+        if (!str_ends_with($shop, '.myshopify.com')) {
+            return new Response('Invalid shop domain', 400);
+        }
 
-        /* TODO: Krok 3 — zweryfikuj state (CSRF)
-           - porównaj z tym z sesji (lub z cookie fallback, jeśli tak zrobisz)
-           - niezgodny → 400
-           - wyczyść z sesji po użyciu
-        */
-         $sessionState = $session->get('shopify_oauth_state');
-         $sessionShop = $session->get('shopify_oauth_shop');
+        // --- 2) Walidacja state (CSRF)
+        $expectedState = (string) $session->get('shopify_oauth_state', '');
+        $expectedShop  = (string) $session->get('shopify_oauth_shop', '');
+        if (!$expectedState || $state !== $expectedState || $shop !== $expectedShop) {
+            return new Response('Invalid state or shop mismatch', 400);
+        }
+        // jednorazowe — czyścimy
+        $session->remove('shopify_oauth_state');
+        $session->remove('shopify_oauth_shop');
 
-         if (!$sessionState || !$sessionShop || $state !== $sessionState || $shop !== $sessionShop) {
-             return new Response('Invalid state parameter (possible CSRF attack)', 400);
-         }
+        // --- 3) Weryfikacja HMAC (hex) z wszystkich parametrów poza hmac/signature
+        $params = $request->query->all();
+        unset($params['hmac'], $params['signature']);
+        ksort($params);
+        $queryString = http_build_query($params, '', '&', PHP_QUERY_RFC3986);
+        $calculated  = hash_hmac('sha256', $queryString, $apiSecret); // hexdigest
+        if (!hash_equals($calculated, $hmac)) {
+            return new Response('HMAC verification failed', 401);
+        }
 
-         // Clear state and shop from session after validation
-         $session->remove('shopify_oauth_state');
-         $session->remove('shopify_oauth_shop');
+        // --- 4) Wymiana code -> access_token
+        $tokenUrl = sprintf('https://%s/admin/oauth/access_token', $shop);
+        try {
+            $client = HttpClient::create();
+            $resp = $client->request('POST', $tokenUrl, [
+                'headers' => ['Content-Type' => 'application/json'],
+                'json' => [
+                    'client_id'     => $apiKey,
+                    'client_secret' => $apiSecret,
+                    'code'          => $code,
+                ],
+                'timeout' => 15,
+            ]);
+        } catch (\Throwable $e) {
+            return new Response('Token exchange error: '.$e->getMessage(), 502);
+        }
 
-        /* TODO: Krok 4 — zweryfikuj HMAC (HEX, jak w launch)
-           - identyczna procedura: sort, RFC3986, hash_hmac sha256 z API_SECRET
-           - niezgodny → 401
-        */
-         $data = $request->query->all();
-         unset($data['hmac'], $data['signature']);
+        if ($resp->getStatusCode() !== 200) {
+            return new Response('Token exchange failed: HTTP '.$resp->getStatusCode().' '.$resp->getContent(false), 502);
+        }
 
-         ksort($data);
-         $queryString = http_build_query($data, '', '&', PHP_QUERY_RFC3986);
-         $calculatedHmac = hash_hmac('sha256', $queryString, $apiSecret);
+        $data = $resp->toArray(false);
+        $accessToken = $data['access_token'] ?? null;
+        if (!$accessToken) {
+            return new Response('No access_token in response', 502);
+        }
 
-         if (!hash_equals($calculatedHmac, $hmac)) {
-             return new Response('Invalid HMAC parameter (possible data tampering)', 401);
-         }
+        // --- 5) Zapis / aktualizacja wpisu sklepu w DB
+        $entity = $this->shops->findOneBy(['shopDomain' => $shop]) ?? (new Shop($shop));
+        $entity->setAccessToken($accessToken);
 
-        /* TODO: Krok 5 — wymień code → access_token
-           - endpoint: https://{shop}/admin/oauth/access_token
-           - POST JSON: { client_id, client_secret, code }
-           - użyj symfony/http-client (HttpClient::create()->request(...))
-           - oczekuj HTTP 200 i 'access_token' w JSON
-        */
-         $httpClient = \Symfony\Component\HttpClient\HttpClient::create();
-         $response = $httpClient->request('POST', 'https://' . $shop . '/admin/oauth/access_token', [
-             'json' => [
-                 'client_id' => $apiKey,
-                 'client_secret' => $apiSecret,
-                 'code' => $code,
-             ],
-         ]);
+        $this->em->persist($entity);
+        $this->em->flush();
 
-         if ($response->getStatusCode() !== 200) {
-             return new Response('Failed to exchange code for access token', 500);
-         }
+        return $this->render('auth/success.html.twig', [
+            'shop'   => $shop,
+            'scopes' => $data['scope'] ?? '',
+        ]);
+    }
 
-         $responseData = $response->toArray();
-         $accessToken = $responseData['access_token'] ?? null;
-
-         if (!$accessToken) {
-             return new Response('Access token not found in response', 500);
-         }
-
-        /* TODO: Krok 6 — zapisz/aktualizuj rekord w DB
-           - znajdź Shop po shopDomain, albo utwórz nowy
-           - setAccessToken($accessToken) i flush()
-        */
-         //   tylko zapis do db TODO dodac repozytorium do srpawdzenia czy sklep juz istnieje
-         $shopEntity = new Shop($shop, $accessToken);
-         $this->em->persist($shopEntity);
-         $this->em->flush();
-            
-
-
-        /* TODO: Krok 7 — (opcjonalnie) pokaż stronę sukcesu
-           - render('auth/success.html.twig', ['shop' => $shop, 'scopes' => $data['scope'] ?? '' ])
-        */
-         return $this->render('auth/success.html.twig', ['shop' => $shop, 'scopes' => $responseData['scope'] ?? '']);
-
-        return new Response('TODO: verify callback & exchange code for token, then persist', 501);
+    #[Route('/', name: 'shopify_app_launch', methods: ['GET'])]
+    public function launch(Request $request, SessionInterface $session): Response
+    {
+        $shop      = strtolower(trim((string) $request->query->get('shop', '')));
+        return $this->redirectToRoute('shopify_auth_install', ['shop' => $shop]);
     }
 }
