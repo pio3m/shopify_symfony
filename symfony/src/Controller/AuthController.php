@@ -26,10 +26,22 @@ final class AuthController extends AbstractController
            - weź $shop z query (?shop=*.myshopify.com)
            - zwróć 400, jeśli brak/niewłaściwy format
         */
+         $shop = $request->query->get('shop');
+         if (!$shop || !str_ends_with($shop, '.myshopify.com')) {
+             return new Response('Invalid or missing shop parameter', 400);
+         }
 
         /* TODO: Krok 2 — wczytaj z ENV: SHOPIFY_API_KEY, SHOPIFY_REDIRECT_URI, SHOPIFY_SCOPES
            - jeśli brakuje któregoś → 500 z komunikatem
         */
+         $apiKey = $_ENV['SHOPIFY_API_KEY'] ?? null;
+         $redirectUri = $_ENV['SHOPIFY_REDIRECT_URI'] ?? null;
+         $scopes = $_ENV['SHOPIFY_SCOPES'] ?? null;
+
+         if (!$apiKey || !$redirectUri || !$scopes) {
+             return new Response('Missing Shopify configuration in environment variables', 500);
+         }
+         
 
         /* TODO: Krok 3 — wygeneruj losowy $state (csrf)
            - zapisz w sesji: shopify_oauth_state, shopify_oauth_shop
@@ -45,7 +57,7 @@ final class AuthController extends AbstractController
         */
 
         /* TODO: Krok 5 — RedirectResponse($authUrl) */
-        return new Response('TODO: build OAuth authorize URL and redirect', 501);
+        return new Response('Logi ' . $shop, 501);
     }
 
    
