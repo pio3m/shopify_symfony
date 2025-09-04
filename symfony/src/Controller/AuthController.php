@@ -16,8 +16,7 @@ use Symfony\Component\HttpFoundation\Session\SessionInterface;
 final class AuthController extends AbstractController
 {
     public function __construct(
-        private EntityManagerInterface $em,
-        private ShopRepository $shops
+        private EntityManagerInterface $em
     ) {}
 
     #[Route('/auth/install', name: 'shopify_auth_install', methods: ['GET'])]
@@ -84,7 +83,8 @@ final class AuthController extends AbstractController
              "frame-ancestors https://admin.shopify.com https://{$shop};"
         */
 
-        return new Response('TODO: verify launch HMAC & render app or redirect to install', 501);
+      return $this->render('index.html.twig', ['version' => $_ENV['API_VERSION']]);
+      //   return new Response('TODO: verify launch HMAC & render app or redirect to install', 501);
     }
 
     #[Route('/auth/callback', name: 'shopify_auth_callback', methods: ['GET'])]
