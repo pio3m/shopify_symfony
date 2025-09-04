@@ -115,21 +115,54 @@ final class AuthController extends AbstractController
         /* TODO: Krok 1 — wczytaj z ENV: SHOPIFY_API_KEY, SHOPIFY_API_SECRET
            - jeśli brakuje → 500
         */
+         $apiKey = $_ENV['SHOPIFY_API_KEY'] ?? null;
+         $apiSecret = $_ENV['SHOPIFY_API_SECRET'] ?? null;
+         if (!$apiKey || !$apiSecret) {
+             return new Response('Missing Shopify configuration in environment variables', 500);
+         }
 
         /* TODO: Krok 2 — pobierz z query: hmac, code, shop, state
            - waliduj obecność i format shop (*.myshopify.com)
         */
+         $hmac = $request->query->get('hmac');
+         $code = $request->query->get('code');
+         $shop = $request->query->get('shop');
+         $state = $request->query->get('state');
+
+         if (!$hmac || !$code || !$shop || !$state || !str_ends_with($shop, '.myshopify.com')) {
+             return new Response('Invalid or missing parameters from Shopify', 400);
+         }
 
         /* TODO: Krok 3 — zweryfikuj state (CSRF)
            - porównaj z tym z sesji (lub z cookie fallback, jeśli tak zrobisz)
            - niezgodny → 400
            - wyczyść z sesji po użyciu
         */
+         $sessionState = $session->get('shopify_oauth_state');
+         $sessionShop = $session->get('shopify_oauth_shop');
+
+         if (!$sessionState || !$sessionShop || $state !== $sessionState || $shop !== $sessionShop) {
+             return new Response('Invalid state parameter (possible CSRF attack)', 400);
+         }
+
+         // Clear state and shop from session after validation
+         $session->remove('shopify_oauth_state');
+         $session->remove('shopify_oauth_shop');
 
         /* TODO: Krok 4 — zweryfikuj HMAC (HEX, jak w launch)
            - identyczna procedura: sort, RFC3986, hash_hmac sha256 z API_SECRET
            - niezgodny → 401
         */
+         $data = $request->query->all();
+         unset($data['hmac'], $data['signature']);
+
+         ksort($data);
+         $queryString = http_build_query($data, '', '&', PHP_QUERY_RFC3986);
+         $calculatedHmac = hash_hmac('sha256', $queryString, $apiSecret);
+
+         if (!hash_equals($calculatedHmac, $hmac)) {
+             return new Response('Invalid HMAC parameter (possible data tampering)', 401);
+         }
 
         /* TODO: Krok 5 — wymień code → access_token
            - endpoint: https://{shop}/admin/oauth/access_token
@@ -137,6 +170,25 @@ final class AuthController extends AbstractController
            - użyj symfony/http-client (HttpClient::create()->request(...))
            - oczekuj HTTP 200 i 'access_token' w JSON
         */
+         $httpClient = \Symfony\Component\HttpClient\HttpClient::create();
+         $response = $httpClient->request('POST', 'https://' . $shop . '/admin/oauth/access_token', [
+             'json' => [
+                 'client_id' => $apiKey,
+                 'client_secret' => $apiSecret,
+                 'code' => $code,
+             ],
+         ]);
+
+         if ($response->getStatusCode() !== 200) {
+             return new Response('Failed to exchange code for access token', 500);
+         }
+
+         $responseData = $response->toArray();
+         $accessToken = $responseData['access_token'] ?? null;
+
+         if (!$accessToken) {
+             return new Response('Access token not found in response', 500);
+         }
 
         /* TODO: Krok 6 — zapisz/aktualizuj rekord w DB
            - znajdź Shop po shopDomain, albo utwórz nowy
