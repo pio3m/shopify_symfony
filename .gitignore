@@ -1,0 +1,37 @@
+###> symfony/framework-bundle ###
+/.env.local
+/.env.local.php
+/.env.*.local
+/config/secrets/prod/prod.decrypt.private.php
+/public/bundles/
+/var/
+/vendor/
+###< symfony/framework-bundle ###
+/symfony/public/uploads
+# Ignorowanie plików systemowych i edytorów
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Ignorowanie plików środowiskowych
+/.env
+/.env.test
+/.phpunit.result.cache
+
+# Ignorowanie folderów tymczasowych i generowanych przez Docker
+/docker/xdebug.log
+
+# Ignorowanie plików cache Symfony
+/symfony/var/
+!/symfony/var/.gitkeep  # Wyjątek dla pustego folderu 'var'
+
+# Ignorowanie plików z zależnościami Composer
+/symfony/vendor/
+
+# Ignorowanie plików buildów front-endowych (jeśli używasz npm/yarn)
+/symfony/node_modules/
+/symfony/public/build/
+/symfony/public/bundles/
+
+/.db_data/

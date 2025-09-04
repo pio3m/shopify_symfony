@@ -1,0 +1,13 @@
+{% extends 'base.html.twig' %}
+
+{% block body %}
+    <h1>App is installed ✅</h1>
+    <p>Shop: {{ shop }}</p>
+    <p>Host (base64): {{ host }}</p>
+
+    {# Jeżeli używasz App Bridge, przekaż host do inicjalizacji #}
+    <script>
+        // Przykład: odczyt host z serwera (tu tylko wyświetlamy)
+        console.log('Shopify host (base64):', '{{ host|e('js') }}');
+    </script>
+{% endblock %}
