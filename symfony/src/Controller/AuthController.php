@@ -47,6 +47,11 @@ final class AuthController extends AbstractController
            - zapisz w sesji: shopify_oauth_state, shopify_oauth_shop
            - (opcjonalnie) zapisz też w cookie (SameSite=None; Secure) jako fallback
         */
+         $state = bin2hex(random_bytes(16));
+
+         $session->set('shopify_oauth_state', $state);
+         $session->set('shopify_oauth_shop', $shop);
+
 
         /* TODO: Krok 4 — zbuduj $authUrl:
            https://{shop}/admin/oauth/authorize
@@ -55,9 +60,14 @@ final class AuthController extends AbstractController
              &redirect_uri={REDIRECT_URI}
              &state={STATE}
         */
-
+         $authUrl = 'https://' . $shop . '/admin/oauth/authorize' .
+                    '?client_id=' . urlencode($apiKey) .
+                    '&scope=' . urlencode($scopes) .
+                    '&redirect_uri=' . urlencode($redirectUri) .
+                    '&state=' . urlencode($state);
+                    
         /* TODO: Krok 5 — RedirectResponse($authUrl) */
-        return new Response('Logi ' . $shop, 501);
+         return new RedirectResponse(authUrl);
     }
 
    
