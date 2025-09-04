@@ -19,7 +19,8 @@ final class AuthController extends AbstractController
         private EntityManagerInterface $em
     ) {}
 
-    #[Route('/auth/install', name: 'shopify_auth_install', methods: ['GET'])]
+   // To jest endpoint /auth/install
+    #[Route('/', name: 'shopify_auth_install', methods: ['GET'])]
     public function install(Request $request, SessionInterface $session): Response
     {
         /* TODO: Krok 1 — pobierz i zweryfikuj ?shop
@@ -71,43 +72,6 @@ final class AuthController extends AbstractController
     }
 
    
-    #[Route('/', name: 'shopify_app_launch', methods: ['GET'])]
-    public function launch(Request $request, SessionInterface $session): Response
-    {
-        /* TODO: Krok 1 — pobierz hmac, host, shop, timestamp z query
-           - jeśli brakuje czegokolwiek → 400
-           - shop musi kończyć się na ".myshopify.com"
-        */
-
-        /* TODO: Krok 2 — anti-replay: sprawdź świeżość timestamp (np. ±300 s)
-           - jeśli za stary → 401
-        */
-
-        /* TODO: Krok 3 — weryfikacja HMAC (HEX)
-           - weź wszystkie paramy query poza 'hmac' i 'signature'
-           - ksort($params)
-           - $queryString = http_build_query(..., PHP_QUERY_RFC3986)
-           - $calc = hash_hmac('sha256', $queryString, $_ENV['SHOPIFY_API_SECRET'])
-           - jeśli !hash_equals($calc, $hmac) → 401
-        */
-
-        /* TODO: Krok 4 — zapisz w sesji: shopify_host, shopify_shop
-           - przyda się np. do App Bridge / powrotu do sklepu
-        */
-
-        /* TODO: Krok 5 — sprawdź, czy mamy token w DB dla tego shopa
-           - $this->shops->findOneBy(['shopDomain' => $shop])
-           - jeśli nie ma lub token pusty → redirect do 'shopify_auth_install'
-        */
-
-        /* TODO: Krok 6 — wyrenderuj UI apki (templates/app/index.html.twig)
-           - ustaw nagłówek CSP:
-             "frame-ancestors https://admin.shopify.com https://{$shop};"
-        */
-
-      return $this->render('index.html.twig', ['version' => $_ENV['API_VERSION']]);
-      //   return new Response('TODO: verify launch HMAC & render app or redirect to install', 501);
-    }
 
     #[Route('/auth/callback', name: 'shopify_auth_callback', methods: ['GET'])]
     public function callback(Request $request, SessionInterface $session): Response
@@ -194,11 +158,17 @@ final class AuthController extends AbstractController
            - znajdź Shop po shopDomain, albo utwórz nowy
            - setAccessToken($accessToken) i flush()
         */
-           
+         //   tylko zapis do db TODO dodac repozytorium do srpawdzenia czy sklep juz istnieje
+         $shopEntity = new Shop($shop, $accessToken);
+         $this->em->persist($shopEntity);
+         $this->em->flush();
+            
+
 
         /* TODO: Krok 7 — (opcjonalnie) pokaż stronę sukcesu
            - render('auth/success.html.twig', ['shop' => $shop, 'scopes' => $data['scope'] ?? '' ])
         */
+         return $this->render('auth/success.html.twig', ['shop' => $shop, 'scopes' => $responseData['scope'] ?? '']);
 
         return new Response('TODO: verify callback & exchange code for token, then persist', 501);
     }
