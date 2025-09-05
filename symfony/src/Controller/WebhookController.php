@@ -126,7 +126,7 @@ final class WebhookController extends AbstractController
             }
         }
 
-        $log = new WebhookLog($topic, $shop,  $body);
+        $log = new WebhookLog($topic, $shop, $webhookId ?: null, $body);
         $this->em->persist($log);
         $this->em->flush();
 
