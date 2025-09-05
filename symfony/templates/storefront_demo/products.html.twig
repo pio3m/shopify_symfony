@@ -1,0 +1,170 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Hello StorefrontDemoController!{% endblock %}
+
+{% block body %}
+<style>
+    .example-wrapper { margin: 1em auto; max-width: 800px; width: 95%; font: 18px/1.5 sans-serif; }
+    .example-wrapper code { background: #F5F5F5; padding: 2px 6px; }
+</style>
+
+<div class="example-wrapper">
+    <h1>Token {{ token }}</h1>
+
+<button id="reload" style="margin-bottom:12px;padding:8px 12px;border-radius:10px;background:#111827;color:white;cursor:pointer;">Załaduj produkty</button>
+     <button id="checkout" style="margin-bottom:12px;padding:8px 12px;border-radius:10px;background:#10b981;color:white;cursor:pointer;display:none;">Przejdź do kasy</button>
+    <div id="alerts" style="color:red;margin-bottom:12px;"></div>
+       <ul id="products" style="list-style:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;"></ul>
+   
+    <script type="module">
+    
+        const GQL = async (query, variables = {}) => {
+            const res = await fetch('{{ path("storefront_gql") }}', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, variables })
+            });
+            const json = await res.json();
+            if (!res.ok || json.errors) {
+                throw new Error((json.errors && json.errors.map(e=>e.message).join('; ')) || ('HTTP '+res.status));
+            }
+            return json.data;
+        };
+
+        const QUERY_PRODUCTS = `
+            query {
+            products(first: 8) {
+                edges {
+                    node {
+                        id
+                        title
+                        featuredImage { url }
+                        variants(first: 1) {
+                            edges { node 
+                                { id title availableForSale price 
+                                { amount currencyCode } } }
+                        }
+                    }
+                }
+            }
+            }`;
+
+        const M_CART_CREATE = ``;
+
+        const M_LINES_ADD = ``;
+
+        const Q_CART = `
+        query GetCart($cartId: ID!) {
+            cart(id: $cartId) {
+                id
+                totalQuantity
+                checkoutUrl
+                lines(first: 10) {
+                edges {
+                    node {
+                    id
+                    quantity
+                    merchandise { ... on ProductVariant { id title product { title } } }
+                    }
+                }
+                }
+            }
+        }`;
+
+        let cartId = null;
+        let checkoutUrl = null;
+
+        const $alerts = document.getElementById('alerts');
+        const $list   = document.getElementById('products');
+        const $qty    = document.getElementById('qty');
+        const $checkout = document.getElementById('checkout');
+
+        function alertMsg(msg) { $alerts.textContent = msg || ''; }
+        function setQty(n) { $qty.textContent = n ? `Liczba pozycji w koszyku: ${n}` : ''; }
+
+        async function ensureCart() {
+            if (cartId) return cartId;
+            const { cartCreate } = await GQL(M_CART_CREATE);
+            if (cartCreate.userErrors && cartCreate.userErrors.length) {
+                throw new Error(cartCreate.userErrors.map(e=>e.message).join(', '));
+            }
+            cartId = cartCreate.cart.id;
+            checkoutUrl = cartCreate.cart.checkoutUrl;
+            setQty(cartCreate.cart.totalQuantity || 0);
+            return cartId;
+        }
+
+        async function addToCart(variantId) {
+            await ensureCart();
+            const { cart } = (await GQL(M_LINES_ADD, { cartId, variantId, qty: 1 })).cartLinesAdd;
+            checkoutUrl = cart.checkoutUrl;
+            setQty(cart.totalQuantity);
+            $checkout.style.display = 'inline-block';
+        }
+
+        async function loadProducts() {
+            alertMsg('');
+            $list.innerHTML = '<li>Ładowanie…</li>';
+            try {
+                const data = await GQL(QUERY_PRODUCTS);
+                const items = data.products.edges || [];
+                if (!items.length) {
+                    $list.innerHTML = '<li>Brak produktów (upewnij się, że są opublikowane na Online Store).</li>';
+                    return;
+                }
+                $list.innerHTML = '';
+                for (const edge of items) {
+                    const p = edge.node;
+                    const v = p.variants.edges[0]?.node;
+                    const li = document.createElement('li');
+                    li.style.cssText = 'border:1px solid #e5e7eb;border-radius:12px;padding:12px;display:flex;gap:10px;align-items:center;';
+                    const img = document.createElement('img');
+                    img.src = p.featuredImage?.url || 'https://via.placeholder.com/64';
+                    img.alt = p.title;
+                    img.width = 64; img.height = 64; img.style.borderRadius = '8px';
+
+                    const meta = document.createElement('div');
+                    meta.innerHTML = `<div style="font-weight:600">${p.title}</div>
+                    <div style="color:#374151;font-size:14px">
+                    ${v ? (v.price?.amount + ' ' + v.price?.currencyCode) : 'brak wariantu'}
+                    </div>`;
+
+                    li.appendChild(img);
+                    li.appendChild(meta);
+
+                    if (v && v.availableForSale) {
+                        const btn = document.createElement('button');
+                        btn.textContent = 'Dodaj do koszyka';
+                        btn.style.cssText = 'margin-left:auto;padding:8px 12px;border-radius:10px;background:#111827;color:white;cursor:pointer;';
+                        btn.addEventListener('click', async () => {
+                            try {
+                                btn.disabled = true; btn.textContent = 'Dodawanie…';
+                                await addToCart(v.id);
+                                btn.textContent = 'Dodano!';
+                            } catch (e) {
+                                alertMsg(e.message);
+                                btn.textContent = 'Dodaj do koszyka';
+                                btn.disabled = false;
+                            }
+                        });
+                        li.appendChild(btn);
+                    }
+
+                    $list.appendChild(li);
+                }
+            } catch (e) {
+                $list.innerHTML = '';
+                alertMsg(e.message);
+            }
+        }
+
+        document.getElementById('reload').addEventListener('click', loadProducts);
+        $checkout.addEventListener('click', () => { if (checkoutUrl) window.location.href = checkoutUrl; });
+
+        // auto-load na wejściu
+        loadProducts();
+    </script>
+    
+
+</div>
+{% endblock %}
