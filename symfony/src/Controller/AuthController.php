@@ -134,10 +134,25 @@ final class AuthController extends AbstractController
         ]);
     }
 
-    #[Route('/', name: 'shopify_app_launch', methods: ['GET'])]
-    public function launch(Request $request, SessionInterface $session): Response
-    {
-        $shop      = strtolower(trim((string) $request->query->get('shop', '')));
-        return $this->redirectToRoute('shopify_auth_install', ['shop' => $shop]);
-    }
+   #[Route('/', name: 'shopify_app_launch', methods: ['GET'])]
+   public function launch(Request $request, SessionInterface $session): Response
+   {
+      $shop = strtolower(trim((string) $request->query->get('shop', '')));
+
+      // 1) Jeśli znamy sklep i mamy token -> pokaż UI
+      if ($shop && str_ends_with($shop, '.myshopify.com')) {
+         $entity = $this->shops->findOneBy(['shopDomain' => $shop]);
+         if ($entity && $entity->getAccessToken()) {
+               // renderuj główny UI Twojej apki (non-embedded, więc bez App Bridge/CSP)
+               return $this->render('app/index.html.twig', ['shop' => $shop]);
+         }
+
+         // 2) Brak tokenu -> start OAuth
+         return $this->redirectToRoute('shopify_auth_install', ['shop' => $shop]);
+      }
+
+      // 3) Brak ?shop=... -> pokaż prosty formularz (UX fallback)
+      return $this->render('auth/enter_shop.html.twig');
+   }
+
 }
