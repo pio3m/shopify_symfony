@@ -126,12 +126,9 @@ final class WebhookController extends AbstractController
             }
         }
 
-        // Zapisz log (szybko, bez ciężkiej pracy)
-        $log = new WebhookLog($topic, $shop, $webhookId ?: null, $body);
+        $log = new WebhookLog($topic, $shop,  $body);
         $this->em->persist($log);
         $this->em->flush();
-
-        // TODO: tu odpal kolejkę / async job do dalszego przetwarzania
 
         return new Response('OK', 200);
     }
