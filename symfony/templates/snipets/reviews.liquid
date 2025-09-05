@@ -1,0 +1,51 @@
+{% if customer %}
+  <button id="like-btn" class="like-btn" data-product-id="{{ product.id }}">
+    <span class="heart" aria-hidden="true">♡</span> Lubię to
+  </button>
+ 
+  <script>
+  (function() {
+    const btn = document.getElementById('like-btn');
+    if (!btn) return;
+
+    btn.addEventListener('click', async () => {
+      const productId = btn.dataset.productId;
+
+      const res = await fetch('/apps/reviews', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        credentials: 'include',
+        body: JSON.stringify({ productId, rating: 1 })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.ok) {
+        btn.setAttribute('aria-pressed', 'true');
+        btn.innerHTML = '<span class="heart" aria-hidden="true">❤</span> Polubiono';
+        btn.disabled = true;
+      } else {
+        alert((data && data.error) || 'Błąd');
+      }
+    });
+  })();
+  </script>
+
+  <style>
+    .like-btn {
+      border: 1px solid currentColor;
+      padding: .5rem .75rem;
+      border-radius: .75rem;
+      background: transparent;
+      cursor: pointer;
+    }
+    .like-btn[aria-pressed="true"] {
+      opacity: .85;
+    }
+    .heart {
+      font-size: 1.2em;
+      margin-right: .35rem;
+    }
+  </style>
+{% else %}
+  <p>Aby polubić produkt, <a href="/account/login">zaloguj się</a>.</p>
+{% endif %}
